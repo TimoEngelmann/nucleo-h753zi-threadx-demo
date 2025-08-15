@@ -1,0 +1,31 @@
+Diagnostics:
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - cert-*
+      - cppcoreguidelines-*
+      - llvm-*
+      - misc-*
+      - modernize-*
+      - performance-*
+      - readability-*
+    Remove:
+      - cppcoreguidelines-avoid-c-arrays
+      - modernize-avoid-c-arrays
+      - cppcoreguidelines-pro-type-vararg
+      - cert-dcl50-cpp
+      - cppcoreguidelines-pro-bounds-constant-array-index
+      - cppcoreguidelines-pro-bounds-pointer-arithmetic
+      - modernize-use-using
+      - readability-magic-numbers
+      - misc-use-anonymous-namespace
+      - misc-use-internal-linkage
+      - cppcoreguidelines-pro-type-cstyle-cast
+      - performance-no-int-to-ptr
+      - readability-simplify-boolean-expr
+      - modernize-use-trailing-return-type
+      - modernize-use-std-print
+      - cppcoreguidelines-avoid-non-const-global-variables
+      - llvm-include-order
+CompileFlags:
+  CompilationDatabase: build/Debug

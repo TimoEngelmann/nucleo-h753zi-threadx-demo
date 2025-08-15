@@ -1,0 +1,89 @@
+---
+# ==============================================================
+# C/C++ Coding Style Configuration File for STM32DevFramework
+# see: https://clang.llvm.org/docs/ClangFormatStyleOptions.html 
+# for more information regarding the used options.
+# ==============================================================
+
+# === Language & file header: ===
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: Cpp11
+SortIncludes: false
+
+# === Comments: ===
+FixNamespaceComments: true
+
+# === Tabs & Indention: === 
+UseTab: Never
+TabWidth: 4
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+NamespaceIndentation: All
+AccessModifierOffset: -2 # Indention of e.g. 'public' or 'private'
+IndentPPDirectives: None
+IndentCaseLabels: true
+
+# === Lines: ===
+ColumnLimit: 0
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+SeparateDefinitionBlocks: Leave
+
+# === Alignments: ===
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveBitFields:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignEscapedNewlines: Left
+AlignTrailingComments:
+  Kind: Leave
+AlignConsecutiveAssignments:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+DerivePointerAlignment: false
+PointerAlignment: Left
+AlignAfterOpenBracket: DontAlign 
+
+# === Braces: ===
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: true
+  AfterClass: true
+  AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+ReflowComments: false
+InsertBraces: true # Insert braces after control statements (if, else, for, do, and while).
+
+# === Spaces: ===
+SpacesInParentheses: false
+SpaceBeforeAssignmentOperators: true
+SpaceInEmptyParentheses: false
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInSquareBrackets: false
+InsertNewlineAtEOF: true # Insert a newline at end of file if missing.
+
+# === Short statements: ===
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false 
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+...

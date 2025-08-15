@@ -1,0 +1,21 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "stm32cube-ide-clangd.arguments": [
+            "starm-clangd",
+            "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/19.1.6+st.8/bin/starm-clang.exe",
+            "--background-index",
+            "--header-insertion=iwyu",
+            "--completion-style=detailed",
+            "--all-scopes-completion",
+            "--clang-tidy",
+            "--log=info",
+            "--pretty"
+        ],
+        "stm32cube-ide-clangd.path": "cube"
+    }
+}
