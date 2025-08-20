@@ -359,9 +359,9 @@ void thrdFct_Main(ULONG __attribute__((unused)) thread_input)
     // --- Init Application:
     // Place here initialization stuff that needs to be done before starting the threads.
     // Initialize LED1 (turn on at startup)
-    HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED1_Green_GPIO_Port, LED1_Green_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED2_Orange_GPIO_Port, LED2_Orange_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED3_Red_GPIO_Port, LED3_Red_Pin, GPIO_PIN_SET);
 
     // Start now the background thread:
     tx_thread_resume(&thrdHdl_Background);
@@ -379,7 +379,7 @@ void thrdFct_Main(ULONG __attribute__((unused)) thread_input)
             {
                 counterMain1 = 0;
                 counterLD1++;
-                HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+                HAL_GPIO_TogglePin(LED1_Green_GPIO_Port, LED1_Green_Pin);
             }
 
             // Demo code to blink the LD2:
@@ -388,7 +388,7 @@ void thrdFct_Main(ULONG __attribute__((unused)) thread_input)
             {
                 counterMain2 = 0;
                 counterLD2++;
-                HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+                HAL_GPIO_TogglePin(LED2_Orange_GPIO_Port, LED2_Orange_Pin);
             }
         }
 
@@ -418,19 +418,19 @@ void thrdFct_Background(ULONG __attribute__((unused)) thread_input)
 
             // Check if button B1 is pressed (active high)
             // TODO: Insert debouncing.
-            if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_SET)
+            if (HAL_GPIO_ReadPin(Button1_Blue_GPIO_Port, Button1_Blue_Pin) == GPIO_PIN_SET)
             {
-                if (HAL_GPIO_ReadPin(LD3_GPIO_Port, LD3_Pin) == GPIO_PIN_RESET)
+                if (HAL_GPIO_ReadPin(LED3_Red_GPIO_Port, LED3_Red_Pin) == GPIO_PIN_RESET)
                 {
                     counterButton++;
                     counterLD3++;
                     buttonTimeStamps.push_back(counterBackground);
-                    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+                    HAL_GPIO_WritePin(LED3_Red_GPIO_Port, LED3_Red_Pin, GPIO_PIN_SET);
                 }
             }
             else
             {
-                HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(LED3_Red_GPIO_Port, LED3_Red_Pin, GPIO_PIN_RESET);
             }
         }
     }

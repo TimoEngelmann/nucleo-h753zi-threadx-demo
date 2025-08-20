@@ -5,9 +5,18 @@
         }
     ],
     "settings": {
+	    "cmake.cmakePath": "cube-cmake",
+        "cmake.configureArgs": [
+            "-DCMAKE_COMMAND=cube-cmake"
+        ],
+        "cmake.preferredGenerators": [
+            "Ninja"
+        ],
+        "stm32cube-ide-clangd.path": "cube",
         "stm32cube-ide-clangd.arguments": [
             "starm-clangd",
-            "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/19.1.6+st.8/bin/starm-clang.exe",
+            "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/19.1.6+st.9/bin/starm-clang++.exe",
+            "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/19.1.6+st.9/bin/starm-clang.exe",
             "--background-index",
             "--header-insertion=iwyu",
             "--completion-style=detailed",
