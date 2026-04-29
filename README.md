@@ -9,24 +9,30 @@ It is based on
 
 ## 📁 Folder & File Structure
 ```
-nucleo-h753zi-threadx-demo/ ... # Root folder of repository.
-├─ STM32Project/ .............. # Root folder of STM32 firmware project.
+nucleo-h753zi-threadx-demo/ ....... # Root folder of repository.
+├─ STM32Project/ .................. # Root folder of STM32 firmware project.
+│  ├─ .settings/
+│  │  ├─ bundles.store.json ....... # Versions of st bundles, see System Bundle Manager in STM32CubeIDE for Visual Studio Code extension.
+│  │  ├─ bundles-lock.store.json .. # Versions of st bundles, see System Bundle Manager in STM32CubeIDE for Visual Studio Code extension.
+│  │  └─ ide.store.json ........... # Board information.
 │  ├─ .vscode/
-│  │  └─ launch.json .......... # Debugger configuration.
+│  │  ├─ launch.json .............. # Debugger configuration.
+│  │  └─ task.json ................ # Task to restart incl. build during debugging.
 │  ├─ Application/
-│  │  ├─ application.cpp ...... # Simple demo application with two threadX threads.
-│  │  └─ CMakeLists.txt ....... # Changed compiler settings, automatic include sources in 'Application' folder.
+│  │  ├─ application.cpp .......... # Simple demo application with two threadX threads.
+│  │  └─ CMakeLists.txt ........... # Changed compiler settings, automatic include sources in 'Application' folder.
 │  ├─ cmake/
-│  │  └─ starm-clang.cmake .... # 'STARM_NEWLIB' selected, '--target=thumbv7em-st-none-eabihf' added to 'TARGET_FLAGS'.
+│  │  └─ starm-clang.cmake ........ # 'STARM_NEWLIB' selected.
 │  ├─ Core/
 │  │  └─ Src/
-│  │     └─ app_threadx.c ..... # Hint added, that this file is replaced by application.cpp 
-│  ├─ .clangd ................. # Changed clangd configuration
-│  ├─ .clang-format ........... # Example of clang formatter configuration.
-│  ├─ .gitignore .............. # Git ignore configuration.
-│  ├─ CMakeLists.txt .......... # Link to 'Application' subdirectory added.
-│  ├─ README.doc .............. # GitHub readme file.
-│  ├─ STM32Firmware.ioc ....... # Sample STM32 configuration file for STM32CubeMX
+│  │     ├─ main.c ................ # Added C include and using item of this file. This is only for reproducing a st / clangd bug.
+│  │     └─ app_threadx.c ......... # Hint added, that this file is replaced by application.cpp 
+│  ├─ .clangd ..................... # Clangd configuration
+│  ├─ .clang-format ............... # Example of clang formatter configuration.
+│  ├─ .gitignore .................. # Git ignore configuration.
+│  ├─ CMakeLists.txt .............. # Link to 'Application' subdirectory added, this includes the CMakeLists.txt in Application folder.
+│  ├─ README.doc .................. # GitHub readme file.
+│  ├─ STM32Firmware.ioc ........... # Sample STM32 configuration file for STM32CubeMX
 │  └─ STM32Project_open_in_VSCode.code-workspace  # VSCode workspace to open the project via double click.
 ```
 
