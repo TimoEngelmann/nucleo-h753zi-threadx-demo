@@ -66,7 +66,7 @@ Install and configure the tools:
 
 2. Create a *`STM32 Dev`* VSCode profile for STM32 development (see: https://code.visualstudio.com/docs/configure/profiles).
 
-3. In this *`STM32 Dev`* profile install the extension pack [🔗 STM32Cube for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=stmicroelectronics.stm32-vscode-extension) ⚠️ in **pre-release** version (v3.5.1) ⚠️
+3. In this *`STM32 Dev`* profile install the extension pack [🔗 STM32CubeIDE for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=stmicroelectronics.stm32-vscode-extension)
 
 <br>
 
