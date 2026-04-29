@@ -1,9 +1,9 @@
 # 📟 STM32 NUCLEO-H753ZI threadX Demo
 This repository contains a simple demo with two threadX threads in the Application/application.cpp file.
 It is based on
-- [🔗STM32CubeMX](https://www.st.com/en/development-tools/stm32cubemx.html) (v6.15.0)<br>
-- [🔗Visual Studio Code](https://code.visualstudio.com/) (v1.103.1) with the 
-- ST extension pack [🔗 STM32Cube for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=stmicroelectronics.stm32-vscode-extension) (pre-release v3.5.1)
+- [🔗STM32CubeMX](https://www.st.com/en/development-tools/stm32cubemx.html) (v6.17.0)<br>
+- [🔗Visual Studio Code](https://code.visualstudio.com/) (v1.117.0) with the 
+- ST extension pack [🔗 STM32CubeIDE for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=stmicroelectronics.stm32-vscode-extension) (v3.8.0)
 
 <br>
 
