@@ -5,43 +5,36 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug STM32 (ST-Link)",
+      // --- Default attributes: ---
+      "name": "ST-Link",
       "type": "stlinkgdbtarget",
       "request": "launch",
       "origin": "snippet",
       "cwd": "${workspaceFolder}",
       "preBuild": "${command:st-stm32-ide-debug-launch.build}",
-      "program": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}",
-      "gdb": "${command:st-stm32-ide-debug-launch.get-gdb-executable}",
-      "serverExe": "ST-LINK_gdbserver",
-      "serverCubeProgPath": "${command:st-stm32-ide-debug-launch.get-programmer-path}",
-      "serverInterface": "SWD",
-      "serverInterfaceFrequency": "Auto",
-      "serverVerify": false,
-      "serverApID": "${command:st-stm32-ide-debug-launch.get-access-port}",
-      "serverReset": "Connect under reset",
-      "serverHost": "localhost",
-      "serverPort": "61234",
-      "serverCwd": "${command:st-stm32-ide-debug-launch.get-server-path}",
       "runEntry": "main",
       "imagesAndSymbols": [
         {
-          "imageFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}",
-          "imageOffset": "",
-          "symbolFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}",
-          "symbolOffset": ""
+          "imageFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}"
         }
       ],
-      "faultDivByZero": true,
-      "faultUnalignedAccess": true,
-      "faultHaltOnException": true,
-      "verbose": false,
-      "openGdbConsole": false,
-      "liveWatch": {
+      // --- Added: ---
+      "verbose": false, // Set this to true to enable highly detailed output in the debug console.
+      "preLaunchTask": "CMake: Restart Build for Debug", // Needed to rebuild the project before launching the debugger again. See tasks.json for task definition.
+      "faultDivByZero": true, // This will cause the debugger to halt when a division by zero fault occurs.
+      "faultUnalignedAccess": true, // This will cause the debugger to halt when an unaligned memory access fault occurs.
+      "faultHaltOnException": true, // This will cause the debugger to halt when any exception occurs.
+      "preRunCommands": [ // Needed for debugger output. Without this UTF-8 characters are not displayed correctly.
+        "set charset UTF-8",
+        "set target-charset UTF-8",
+        "set target-wide-charset UTF-16",
+        "set print pretty on",
+        "set output-radix 16" // Globale Hex-Output for registers and memory.
+      ],
+      "liveWatch": { // This enables live watch functionality in the debug view.
         "enabled": true,
-        "samplesPerSecond": "100"
-      }
+        "samplesPerSecond": "10"
+      },
     },
-
   ]
 }

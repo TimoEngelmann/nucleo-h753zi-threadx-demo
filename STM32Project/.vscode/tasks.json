@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: Restart Build for Debug",
+      "type": "shell",
+      "command": "cube",
+      "args": [
+        "cmake",
+        "--build",
+        "--preset",
+        "Debug"
+      ],
+      "problemMatcher": [
+        {
+          "owner": "cpp",
+          "source": "clang",
+          "fileLocation": [
+            "relative",
+            "${workspaceFolder}"
+          ],
+          "pattern": {
+            "regexp": "^(.+?):(\\d+):(\\d+):\\s+(warning|error|note):\\s+(.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        }
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: build",
+      "command": "build",
+      "targets": [
+        "all"
+      ],
+      "preset": "Debug",
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "CMake template build task"
+    }
+  ]
+}

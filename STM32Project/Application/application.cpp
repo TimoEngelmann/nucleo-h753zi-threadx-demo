@@ -13,7 +13,7 @@
 //======================================================================================================================
 #include "main.h" // Needed for the pin and port defines.
 #include <cstdint>
-#include <vector> // C++ vector for storing button timestamps. Just to test a C++ feature.
+#include <vector> // C++ include. Just to test if the clangd is resolving the correct path. If you use this demo for other stuff, you can delete this and all lines with "=> clangd C++ include test."
 #include "stm32h7xx_hal_gpio.h"
 #include "tx_api.h"
 #include "app_threadx.h" // Contains the export declarations for App_ThreadX_Init() and MX_ThreadX_Init() functions.
@@ -57,7 +57,7 @@ static uint32_t counterLD1 = 0;
 static uint32_t counterLD2 = 0;
 static uint32_t counterLD3 = 0;
 static uint32_t counterButton = 0;
-std::vector <uint32_t> buttonTimeStamps; // ATTENTION: This vector stores the data in heap memory. This should be avoided in real applications, as it can lead to memory fragmentation and other issues. It is used here just to test a C++ feature.
+std::vector <uint32_t> buttonTimeStamps; // ATTENTION: This vector stores the data in heap memory. This should be avoided in real applications, as it can lead to memory fragmentation and other issues. => clangd C++ include test.
 
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -149,6 +149,7 @@ void createThread_Main(VOID* ptrRtosMemoryPool)
 /// --------------------------------------------------------------------------------------------------------------------
 TX_THREAD thrdHdl_Background;
 
+
 /// --------------------------------------------------------------------------------------------------------------------
 /// \brief      Creates the Background Thread
 /// \details    This function is called in App_ThreadX_Init() to create and configure the thread.
@@ -199,11 +200,13 @@ void createThread_Background(VOID* ptrRtosMemoryPool)
 /// --------------------------------------------------------------------------------------------------------------------
 TX_EVENT_FLAGS_GROUP evtFlags_Main;
 
+
 /// --------------------------------------------------------------------------------------------------------------------
 /// \brief    Event flag for Main thread wake-up.
 /// \details  This defines the bit position of the event flag.
 /// --------------------------------------------------------------------------------------------------------------------
 constexpr uint32_t evtFlag_Main_WakeUp = 0x00000001;
+
 
 /// --------------------------------------------------------------------------------------------------------------------
 /// \brief      Creates the event flags for main thread.
@@ -236,6 +239,7 @@ void createEventFlags_Main()
 /// \details  This structure contains the timer control block.
 /// --------------------------------------------------------------------------------------------------------------------
 TX_TIMER tmrHdl_Main;
+
 
 /// --------------------------------------------------------------------------------------------------------------------
 /// \brief      Creates the timer for main thread.
@@ -424,7 +428,7 @@ void thrdFct_Background(ULONG __attribute__((unused)) thread_input)
                 {
                     counterButton++;
                     counterLD3++;
-                    buttonTimeStamps.push_back(counterBackground);
+                    buttonTimeStamps.push_back(counterBackground); // => clangd C++ include test.
                     HAL_GPIO_WritePin(LED3_Red_GPIO_Port, LED3_Red_Pin, GPIO_PIN_SET);
                 }
             }
