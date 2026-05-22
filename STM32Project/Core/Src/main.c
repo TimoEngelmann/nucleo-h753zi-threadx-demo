@@ -107,6 +107,7 @@ int main(void)
   {
     cHeadertest = cHeadertest + __bool_true_false_are_defined; // => clangd C include test.
     /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

@@ -26,6 +26,8 @@
             "--log=info",
             "--pretty"
         ],
-        "stm32cube-ide-clangd.path": "cube"
+        "stm32cube-ide-clangd.path": "cube",
+        "cmake.configureOnOpen": false,
+        "cmake.configureOnEdit": false
     }
 }
