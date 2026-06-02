@@ -36,6 +36,11 @@ The links point to headers that are not used by the compiler.
    `...\st-arm-clang\21.1.1+st.7\lib\clang\21\include\arm_acle.h`  
    but is linked to:  
    `...\st-arm-clangd\21.1.0+st.2\lib\clang\21\include\arm_acle.h`  
+
+A special case are C++ headers without file extensions. Without the correct configuration, clangd cannot 
+resolve these files properly. Therefore, it is important to verify that the clangd header linking within these files is correct.  
+`#include <cmath>` path: `...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1\cmath`
+`#include <complex.h>` path: `...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1\complex.h`
    
 ## STM32Cube clangd log   
 
