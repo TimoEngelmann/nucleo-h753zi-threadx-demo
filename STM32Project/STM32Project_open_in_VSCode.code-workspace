@@ -5,29 +5,11 @@
         }
     ],
     "settings": {
-	    "cmake.cmakePath": "cube-cmake",
-        "cmake.configureArgs": [
-            "-DCMAKE_COMMAND=cube-cmake"
-        ],
-        "cmake.preferredGenerators": [
-            "Ninja"
-        ],
-    "stm32cube-ide-clangd.checkUpdates": true,
-    "stm32cube-ide-clangd.restartAfterCrash": true,
+        "stm32cube-ide-clangd.path": "cube",
         "stm32cube-ide-clangd.arguments": [
             "starm-clangd",
             "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/21.1.1+st.7/bin/starm-clang*",
-            "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/21.1.1+st.7/bin/starm-clang++*",
-            "--background-index",
-            "--header-insertion=iwyu",
-            "--completion-style=detailed",
-            "--all-scopes-completion",
-            "--clang-tidy",
-            "--log=info",
-            "--pretty"
-        ],
-        "stm32cube-ide-clangd.path": "cube",
-        "cmake.configureOnOpen": false,
-        "cmake.configureOnEdit": false
+            "--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/21.1.1+st.7/bin/starm-clang++*"
+        ]
     }
 }
