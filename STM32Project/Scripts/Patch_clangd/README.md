@@ -1,126 +1,231 @@
 # clangd Patch Tool
 
+Related ST community discussion:  
+- https://community.st.com/t5/stm32cubeide-for-visual-studio/clangd-assumes-compiler-target-is-x86-64-pc-windows-msvc-for-cpp/m-p/855030
+
 ## Why this patch is needed
 
-Historically, clangd picked the wrong default target (like `x86_64-pc-windows-msvc` on Windows) for ST ARM Clang projects. While this specific target mismatch has been largely addressed, two include-path issues remain when using the `STARM_NEWLIB` configuration:
+One of the clang**d** services allows you to click on `#include<headername>` in the source code, which opens the correct file in a new VS Code editor window.  
 
-1. **Missing Clang built-in headers** — clangd does not automatically inject the Clang compiler's own built-in include directory (`lib/clang/<version>/include`). This directory contains Clang-specific headers such as `stdarg.h`, `stdint.h`, and intrinsic headers that the compiler itself provides.
+Unfortunately, the following current configuration causes issues in this regard:
+- `STM32CubeMX` v6.17.0
+- `STM32CubeIDE for Visual Studio Code` v3.9.0
+- Clang compiler with `STARM_NEWLIB` (configured in `starm-clang.cmake`)   
+- C++ source code
 
-2. **Missing `newlib` path segment in C++ headers** — clangd searches in `arm-none-eabi/include/c++/v1` instead of `newlib/arm-none-eabi/include/c++/v1`, so the `libc++` standard-library headers are not found.
+The links point to headers that are not used by the compiler.
 
-Both issues result in incorrect file associations in the editor, even if the project compiles successfully. This can be misleading during debugging or code analysis, as the wrong file is opened.
+## In detail
 
-This script fixes all `.clangd` files in the project tree to ensure clangd uses the correct ARM target, injects both required `-isystem` include paths, removes conflicting flags, and updates stale toolchain version paths.
+1. C++ STL:  
+   The correct include path for the C++ Standard Library is:  
+   `...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1\`  
+   however, clangd links `#include<math.h>` to:  
+   `...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\arm-none-eabi\include\c++\v1\math.h`  
+   so the `newlib` path branch is missing!
 
-Related ST community discussion:  
-https://community.st.com/t5/stm32cubeide-for-visual-studio/clangd-assumes-compiler-target-is-x86-64-pc-windows-msvc-for-cpp/m-p/855030
+2. C Standard Library:  
+   The `newlib` path component is also missing in the C Standard Library.  
+   `#include<search.h>` should link to  
+   `...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\search.h`  
+   but the following path is used instead:  
+   `..\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\arm-none-eabi\include\search.h`
+
+3. Clang compiler built-in:  
+   `#include<arm_acle.h>` is located in:  
+   `...\st-arm-clang\21.1.1+st.7\lib\clang\21\include\arm_acle.h`  
+   but is linked to:  
+   `...\st-arm-clangd\21.1.0+st.2\lib\clang\21\include\arm_acle.h`  
+   
+## STM32Cube clangd log   
+
+When looking at the ‘STM32Cube clangd’ log, several errors stand out:  
+- System include extraction: driver clang not found in PATH
+- `...\multilib.yaml:47:3: error: unknown key 'IncludeDirs'`  
+- `...\multilib.yaml:21:1: error: multilib “arm-none-eabi/armv4t_exn_rtti_size” specifies undefined group name “stdlibs”
+MultilibVersion: '1.0'`
+
+It is also noticeable that the STM32CubeIDE Extension Pack Bundles Manager 
+has  
+- `st-arm-clang` 21.1.1+st.7 installed, but  
+- `st-arm-clangd` 21.1.0+st.2 is installed.  
+
+It is likely that different API versions are the cause of the multilib errors. 
+
+## Workaround
+
+The workaround solution is to configure clangd via **user-level `config.yaml` file placed in `...\[User]\AppData\Local\clangd\` by using the `patch_clangd.py` script.  
+It creates the file or if still existing it adds the following content to the `config.yaml` file:
+
+``` YAML
+# --- BEGIN patch_clangd.py managed section ---
+# Applies ARM toolchain include paths for ST ARM Clang projects.
+# Managed automatically. Re-run patch_clangd.py to update paths.
+
+CompileFlags:
+  Add:
+    - '--target=arm-none-eabi'
+    - '-nostdinc'
+    - '-nostdinc++'
+    - '-nostdlibinc'
+    - '-x'
+    - 'c++'
+
+# === Path config to headers:
+# ATTENTION: Order of these entries is important!
+# 1. C++ STL:
+    - '-isystem'
+    - >-
+      D:\dev\Tools\ST\STM32CubeRepo\bundles\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1
+# 2. C headers (newlib):
+    - '-isystem'
+    - >-
+      D:\dev\Tools\ST\STM32CubeRepo\bundles\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include
+# 3. clang builtin:
+    - '-isystem'
+    - >-
+      D:\dev\Tools\ST\STM32CubeRepo\bundles\st-arm-clang\21.1.1+st.7\lib\clang\21\include
+# --- END patch_clangd.py managed section ---
+```
+
+## CMake integration
+
+To start the `patch_clangd.py` script, the `CMakeLists.txt` is the best place.
+The following section added to `CMakeLists.txt` starts the script at each CMake reconfiguration.
+
+```cmake
+# Run clangd patch tool to ensure the user clangd config.yaml contains
+# the include-path sections for ST ARM Clang toolchain headers.
+# See: Scripts/Patch_clangd/README.md
+find_package(Python3 COMPONENTS Interpreter REQUIRED QUIET)
+if(DEFINED ENV{CUBE_BUNDLE_PATH})
+  message("")
+  message("!!! ATTENTION !!!")
+  message("Check if a bug fix for 'wrong clangd path' is available!")
+  message("If it is, please remove this workaround part in \\Application\\CMakeLists.txt file and the patch_clangd.py script in \\Scripts\\Patch_clangd folder.")
+  message("Reference: https://community.st.com/t5/stm32cubeide-for-visual-studio/clangd-assumes-compiler-target-is-x86-64-pc-windows-msvc-for-cpp/m-p/855030#M1471")
+  message("")
+
+  execute_process(
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/Scripts/Patch_clangd/patch_clangd.py"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RESULT_VARIABLE PATCH_CLANGD_RESULT
+    )
+    if(NOT PATCH_CLANGD_RESULT EQUAL 0)
+        message(WARNING "patch_clangd: Python script failed with exit code ${PATCH_CLANGD_RESULT}.")
+    endif()
+else()
+    message(WARNING "CUBE_BUNDLE_PATH is not set. clangd config update is skipped.")
+endif()
+```
+
+The script is idempotent, so running it on each reconfigure is safe.
+
+
+# Internal stuff
 
 ## Files in this folder
 
 | File | Description |
 |---|---|
-| `patch_clangd.py` | Main patch tool |
-| `patch_clangd_test_runner.ps1` | Functional test suite (15 tests) |
+| `patch_clangd.py` | Main patch tool (config.yaml-only) |
+| `patch_clangd_test.py` | Functional Python test suite |
 | `README.md` | This document |
-
-
-> **Note:** Python creates a `__pycache__` folder here after the first run.
-> Add `__pycache__/` to your `.gitignore` so it is not committed.
 
 ## Platform support
 
-`patch_clangd.py` works on **Windows, Linux, and macOS**.  It uses only the
-Python standard library and `pathlib`, with no platform-specific calls.  The
-embedded paths in the patched `.clangd` files will use the native path
-separator of the host system, which clangd handles correctly on all platforms.
+`patch_clangd.py` runs on **Windows, Linux, and macOS**.
 
-The test runner (`patch_clangd_test_runner.ps1`) requires **PowerShell 5.1+**
-on Windows or **PowerShell Core (`pwsh`)** on Linux/macOS.
+User config path resolution is fully platform-aware:
 
-## How to use
+| Platform | User config location |
+|---|---|
+| Windows | `%LOCALAPPDATA%\clangd\config.yaml` (fallback: `%USERPROFILE%\AppData\Local\clangd\config.yaml`) |
+| Linux | `$XDG_CONFIG_HOME/clangd/config.yaml` or `~/.config/clangd/config.yaml` |
+| macOS | `~/Library/Application Support/clangd/config.yaml` |
 
-### Prerequisites
+## Prerequisites
 
-- **Python 3.6 or newer** available in `PATH`
-- **Environment variable `CUBE_BUNDLE_PATH`** set to the ST bundles directory
-  - STM32CubeIDE sets this automatically when it launches a terminal.
-  - When running manually (e.g. from VS Code), set it yourself:
-    ```powershell
-    $env:CUBE_BUNDLE_PATH = 'C:/path/to/STM32CubeRepo/bundles'
-    ```
+- **Python 3.6 or newer** available in `PATH`.
+- **Environment variable `CUBE_BUNDLE_PATH`** set to the ST bundles directory.
+
+## Parameters
 
 ### Normal run
-Call the script from project root.
+
+Run from project root:
 
 ```powershell
-python ./path/to/patch_clangd.py
+python ./Framework/Toolchain/Scripts/Patch_clangd/patch_clangd.py
 ```
 
-Output when files are patched:
+Typical output when changes are applied:
 
+```text
+Updating clangd user config:
+  PATCHED: C:\Users\<user>\AppData\Local\clangd\config.yaml
 ```
-Patching .clangd file(s):
-  PATCHED: C:\[...]\STM32Project\.clangd
 
-```
+Typical output when nothing changes:
 
-Output when nothing needs to change:
-
-```
-Patching .clangd file(s):
+```text
+Updating clangd user config:
   No changes needed.
-
 ```
 
-### Dry-run mode — preview without writing
+### Dry-run mode
 
 ```powershell
-python ./path/to/patch_clangd.py --dry-run
+python ./Framework/Toolchain/Scripts/Patch_clangd/patch_clangd.py --dry-run
 ```
 
-Shows `WOULD_PATCH` instead of `PATCHED`; no files or backups are written.
+Shows `WOULD_PATCH` and writes nothing.
 
-### Verbose mode — step-by-step diagnostics
+### Verbose mode
 
 ```powershell
-python ./path/to/patch_clangd.py -v
+python ./Framework/Toolchain/Scripts/Patch_clangd/patch_clangd.py -v
 ```
 
-Prints a `[VERBOSE]` line for every decision: which file is processed, which
-section was updated, which backup was created, etc.
+Prints detailed diagnostics, including the resolved user config path.
 
-### Exclude directories
+### Force mode
 
 ```powershell
-python ./path/to/patch_clangd.py --exclude test_output
+python ./Framework/Toolchain/Scripts/Patch_clangd/patch_clangd.py --force
 ```
 
-Skips any `.clangd` file whose path contains the given pattern.
-`--exclude` can be specified multiple times.
+Bypasses the check of `STARM_TOOLCHAIN_CONFIG` and updates config even for non-`STARM_NEWLIB` settings. See below.
 
-### Force patching regardless of cmake config
+### Test override for config path
 
 ```powershell
-python ./path/to/patch_clangd.py --force
+python ./Framework/Toolchain/Scripts/Patch_clangd/patch_clangd.py --config-path C:/temp/config.yaml
 ```
 
-Bypasses the `STARM_TOOLCHAIN_CONFIG` check in `cmake/starm-clang.cmake` and
-always patches, even when the config is not `STARM_NEWLIB`.  Useful for
-testing or for projects where the cmake file is not present.
+Primarily intended for test isolation and CI verification.
+
+## Managed section behavior
+
+For existing `config.yaml` files, the script behaves as follows:
+
+1. If the managed section already exists: it updates only that section when paths changed.
+2. If the managed section does not exist: it appends a new YAML document using `---`.
+3. If no changes are needed: it does nothing.
+
+The script keeps non-managed user content untouched.
 
 ## Backup behavior
 
-Before modifying a file, the script writes a numbered backup in the same
-folder:
+Before changing an existing `config.yaml`, the script writes a numbered backup in the same folder:
 
-```
-.clangd_backup001   ← first patch
-.clangd_backup002   ← second patch (if .clangd is changed again later)
+```text
+config.yaml_backup001
+config.yaml_backup002
 ```
 
-The backup is a byte-for-byte copy of the original (preserves line endings and
-BOM).  The index is determined by scanning the directory, so gaps or
-out-of-order numbers are handled correctly.
+The backup is a byte-for-byte copy of the original file.
 
 ## cmake/starm-clang.cmake guard
 
@@ -130,144 +235,34 @@ If `cmake/starm-clang.cmake` contains:
 set(STARM_TOOLCHAIN_CONFIG "STARM_NEWLIB")
 ```
 
-the script patches normally.  For any other value (e.g. `STARM_PICOLIBC`,
-`STARM_HYBRID`) the script prints a skip message and exits without touching
-any files, because the newlib include paths would be wrong for those
-configurations.
+the script runs normally. For other values (for example `STARM_PICOLIBC`), the script prints a skip message and exits without changes.
 
-If the cmake file does not exist or the variable is not set, the script
-proceeds without a config check (safe fallback).
+If the cmake file is missing or the variable is unset, the script proceeds without guard checks.
 
-To bypass this check entirely, pass `--force` (see [Force patching](#force-patching-regardless-of-cmake-config) above).
-
-## CMake integration
-
-The recommended way is to run the patcher automatically using both a
-**configure-time** and a **build-time** step in `CMakeLists.txt`.
-
-### Why two steps are needed
-
-The VS Code STM32 extension generates (or regenerates) the `.clangd` file
-**after** the CMake configure step completes — not before.  This means that
-on the very first configure run the file does not exist yet, so a pure
-configure-time `execute_process` call finds nothing to patch.
-
-The solution is to run the patcher a second time as a build-time
-`add_custom_target`, so that the **first build** after the file is created
-applies the patch automatically — without requiring a manual second configure.
-
-Because the patch is idempotent (it only writes when a change is actually
-needed), running it on every build costs negligible time and never produces
-duplicate backups.
-
-### Recommended CMakeLists.txt snippet
-
-```cmake
-find_package(Python3 COMPONENTS Interpreter REQUIRED QUIET)
-
-if(DEFINED ENV{CUBE_BUNDLE_PATH})
-  # Configure-time patch: runs immediately if .clangd already exists.
-  if(EXISTS "${CMAKE_SOURCE_DIR}/.clangd")
-    execute_process(
-      COMMAND ${Python3_EXECUTABLE}
-        "${CMAKE_SOURCE_DIR}/path/to/patch_clangd.py"
-        --exclude patch_clangd_test_output
-      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-  else()
-    message(STATUS "patch_clangd: .clangd not yet present — will be patched on the first build.")
-  endif()
-
-  # Build-time patch: covers the first-run case where .clangd is generated
-  # by the VS Code extension after the configure step.
-  add_custom_target(patch_clangd ALL
-    COMMAND ${CMAKE_COMMAND} -E env
-      "CUBE_BUNDLE_PATH=$ENV{CUBE_BUNDLE_PATH}"
-      ${Python3_EXECUTABLE}
-      "${CMAKE_SOURCE_DIR}/path/to/patch_clangd.py"
-      --exclude patch_clangd_test_output
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Patching .clangd file(s)"
-    VERBATIM
-  )
-else()
-  message(WARNING "CUBE_BUNDLE_PATH is not set. clangd patch step is skipped.")
-endif()
-```
-
-### Execution flow
-
-```
-First configure
-  └─► .clangd does not exist yet → configure-time patch skipped
-
-VS Code extension generates .clangd  (after configure)
-
-First build
-  └─► add_custom_target runs patch → .clangd patched ✓
-
-Every subsequent build
-  └─► add_custom_target runs patch → no changes → nothing written ✓
-```
-
-If `.clangd` already exists when configure runs (e.g. from a previous
-session), the configure-time `execute_process` patches it immediately and the
-build-time target finds no further changes — no duplicate work.
-
-### Key points
-
-- `execute_process` runs **during `cmake configure`**, not during the build.
-- `add_custom_target(... ALL ...)` runs **at the start of every build** before
-  compilation begins.
-- `WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"` ensures all project `.clangd`
-  files are found via `rglob`.
-- `--exclude patch_clangd_test_output` prevents the test fixture directory
-  from being patched.
-- `$ENV{CUBE_BUNDLE_PATH}` is captured at configure time and embedded in the
-  build rule, so the environment variable does not need to be set again at
-  build time.
-- `QUIET` suppresses the "found Python" message during configure.
+Use `--force` to bypass the guard.
 
 ## How to run tests
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\path\to\patch_clangd_test_runner.ps1
+python ./Framework/Toolchain/Scripts/Patch_clangd/patch_clangd_test.py
 ```
 
-The test runner creates an isolated output folder (`patch_clangd_test_output`)
-next to the script, runs the patcher against test fixtures, and reports
-**PASS** or **FAIL** for each scenario.
+The test suite uses isolated temporary directories and mock toolchain paths. No real user config is modified.
 
-At the end it asks whether to delete
-the output folder and the `__pycache__` directory.
-
-> **Note:**
-> - Parameter `-ExecutionPolicy Bypass`  
->   Windows blocks unsigned PowerShell scripts by default. This flag lifts that restriction for this single invocation without changing the system policy.  
-> - Parameter `-File`  
-> tells PowerShell to run the argument as a script file (instead of an inline command string).
-
-> **Note:**  
-> The test runner is 100% standalone and CI/CD-ready. If it cannot find a real ST toolchain via the `CUBE_BUNDLE_PATH` environment variable, it will automatically generate an isolated mock toolchain to run its verifications against.
-
-
-### Test cases
+## Test cases
 
 | # | Name | What is verified |
 |---|---|---|
-| 1 | Recursive discovery | All `.clangd` files in all subdirectories are found and patched — not just the one in the project root. |
-| 2 | Backup creation | A `.clangd_backup001` file is created next to every patched file. |
-| 3 | Required flags | `--target=arm-none-eabi`, `-stdlib=libc++`, `--sysroot`, and `--config=newlib.cfg` are present in every file after patching. |
-| 4 | Placeholder replaced | A `${CUBE_BUNDLE_PATH}` placeholder in a `CompilationDatabase:` line is replaced with the resolved bundle path. |
-| 5 | Version update | Stale st-arm-clang toolchain paths (old version in both the Clang built-in C path `lib/clang/<old-ver>/include` and the newlib C++ path) are removed and replaced with the latest installed versions. |
-| 6 | Minimal output | Normal output is exactly one header line (`Patching .clangd file(s):`) plus one `PATCHED:` line per changed file — nothing more. |
-| 7 | Idempotency | Running the patcher a second time on already-patched files produces zero changes and prints `No changes needed.` |
-| 8 | Dry-run mode | With `--dry-run`, `WOULD_PATCH` is printed but no file is written and no backup is created. |
-| 9 | Verbose mode | With `-v`, `[VERBOSE]` diagnostic lines are printed for each processing step. |
-| 10 | Diagnostics preserved | Existing `Diagnostics: Suppress:` entries in a `.clangd` file survive patching completely unchanged. |
-| 11 | cmake guard — NEWLIB | When `cmake/starm-clang.cmake` sets `STARM_TOOLCHAIN_CONFIG "STARM_NEWLIB"`, patching runs normally. |
-| 12 | cmake guard — other | When `cmake/starm-clang.cmake` sets any other value (e.g. `STARM_PICOLIBC`), the patcher prints a skip message and writes nothing. |
-| 13 | `--force` flag | With `--force`, patching runs even when `STARM_TOOLCHAIN_CONFIG` is set to a non-NEWLIB value (e.g. `STARM_PICOLIBC`). |
-| 14 | `--exclude` flag | Files whose path contains the `--exclude` pattern are skipped entirely; other files are still patched. |
-| 15 | Backup numbering | When `.clangd_backup001` already exists, the next patch creates `.clangd_backup002` and leaves `backup001` untouched. |
+| 1 | Fresh config creation | New `config.yaml` is created with managed section and required flags. |
+| 2 | Append, separator and backup | Existing user content is preserved, managed section is appended via `---`, and `config.yaml_backup001` is created. |
+| 3 | Idempotency | Second run without changes prints `No changes needed.` |
+| 4 | Managed path update | Existing managed section with stale paths is updated in place. |
+| 5 | Dry-run mode | `WOULD_PATCH` is printed and no files are written. |
+| 6 | Verbose mode | Diagnostic output includes resolved config path. |
+| 7 | Backup numbering | Existing backup001 leads to backup002 on next change. |
+| 8 | CMake guard NEWLIB | Script runs when `STARM_TOOLCHAIN_CONFIG` is `STARM_NEWLIB`. |
+| 9 | CMake guard non-NEWLIB | Script skips for non-NEWLIB values. |
+| 10 | Force flag | `--force` bypasses non-NEWLIB guard. |
+| 11 | Toolchain missing | Invalid `CUBE_BUNDLE_PATH` returns error. |
+| 12 | User content preserved | Non-managed content remains unchanged during managed updates. |
 

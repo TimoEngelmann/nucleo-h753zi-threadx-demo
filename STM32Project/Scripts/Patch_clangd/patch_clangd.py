@@ -1,36 +1,12 @@
 #!/usr/bin/env python3
 """
-patch_clangd.py  -  clangd configuration patcher for STM32 ARM Clang projects
-
-Background
-----------
-When using clangd with the ST ARM Clang toolchain on Windows, clangd may pick
-the wrong default target (e.g. x86_64-pc-windows-msvc) instead of the correct
-ARM target.  This causes C++ headers and standard library paths to be resolved
-incorrectly, leading to false errors in the editor.
-
-This script fixes all .clangd files found in the current project tree so that
-clangd uses the right target, the correct newlib/libc++ include paths, and does
-not pass conflicting sysroot flags to the compiler.
-
-See also:
-  https://community.st.com/t5/stm32cubeide-for-visual-studio/clangd-assumes-compiler-target-is-x86-64-pc-windows-msvc-for-cpp/m-p/855030#M1471
-
-Features
---------
-- Detects the latest installed st-arm-clang toolchain version automatically.
-- Replaces ${CUBE_BUNDLE_PATH} placeholders with the resolved bundle path.
-- Ensures all required CompileFlags entries are present and up to date.
-  Stale include paths (e.g. from an older toolchain version) are replaced.
-- Creates numbered backup files before any modification
-  (.clangd_backup001, .clangd_backup002, ...).
-- Dry-run mode: shows what would change without writing any files.
-- Verbose mode: prints detailed step-by-step diagnostics.
-- Minimal default output: one start line + one line per patched file.
+patch_clangd.py
+Workaround script to fix clangd header link issue by setting up the user-level clangd config.yaml for STM32 ARM Clang projects.
+See README.md for details about the clangd header parsing issue and the rationale for this patch.
 
 Usage
 -----
-    python patch_clangd.py [--dry-run] [-v | --verbose]
+    python patch_clangd.py [--dry-run] [-v | --verbose] [--force] [--config-path PATH]
 
 Required environment variable
 ------------------------------
@@ -44,12 +20,16 @@ Requirements
     Python 3.6 or newer.
 """
 
+import argparse
 import os
 import re
 import sys
-import argparse
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
+
+
+MANAGED_BEGIN = "# --- BEGIN patch_clangd.py managed section ---"
+MANAGED_END = "# --- END patch_clangd.py managed section ---"
 
 
 # ---------------------------------------------------------------------------
@@ -130,88 +110,6 @@ def read_toolchain_config(project_root: Path) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# YAML structure helpers
-#
-# These helpers work on a list of raw text lines rather than a parsed YAML
-# tree.  They rely on the consistent 2-space indentation used in clangd
-# configuration files.  Tab indentation is not supported.
-# ---------------------------------------------------------------------------
-
-def _find_child_key(
-    lines: List[str], start_idx: int, end_idx: int, key: str
-) -> Optional[int]:
-    """Return the index of a 2-space-indented *key* within the given range.
-
-    Matches both ``  key:`` (key only) and ``  key: value`` (key with inline
-    value on the same line).  Returns ``None`` if the key is not found.
-    """
-    target = f"  {key}:"
-    for i in range(start_idx + 1, end_idx):
-        stripped = lines[i].rstrip()
-        if stripped == target or stripped.startswith(target + " "):
-            return i
-    return None
-
-
-def _find_sequence_end(
-    lines: List[str], seq_start_idx: int, parent_end_idx: int
-) -> int:
-    """Return the index of the first line after the YAML list at *seq_start_idx*.
-
-    The list ends at the first non-empty line that either:
-    - has an indent of 2 or less (a sibling key of the list), or
-    - has an indent of exactly 4 and does not start with ``-``
-      (a scalar key inside the parent block, not a list item).
-    Blank lines are treated as part of the list.
-    """
-    i = seq_start_idx + 1
-    while i < parent_end_idx:
-        stripped = lines[i].strip()
-        if not stripped:
-            i += 1
-            continue
-        indent = len(lines[i]) - len(lines[i].lstrip(" "))  # leading-space count
-        if indent <= 2:
-            break
-        if indent == 4 and not stripped.startswith("-"):
-            break
-        i += 1
-    return i
-
-
-def _is_newlib_include_path(value: str) -> bool:
-    """Return True if *value* is an st-arm-clang newlib include path.
-
-    The check is intentionally version-agnostic: it matches any path that
-    contains ``/st-arm-clang/`` and the expected
-    ``/lib/clang-runtimes/newlib/arm-none-eabi/include`` segment.  This allows
-    stale paths from older toolchain versions to be detected and replaced.
-    """
-    # Strip quotes, unify path separators, and lower-case before comparing.
-    normalized = value.strip().strip("'\"").replace("\\", "/").lower()
-    return (
-        "/st-arm-clang/" in normalized
-        and "/lib/clang-runtimes/newlib/arm-none-eabi/include" in normalized
-    )
-
-
-def _is_clang_builtin_include_path(value: str) -> bool:
-    """Return True if *value* is an st-arm-clang Clang built-in include path.
-
-    The check is intentionally version-agnostic: it matches any path that
-    contains ``/st-arm-clang/`` and the expected
-    ``/lib/clang/<version>/include`` segment.  This allows stale paths from
-    older Clang major versions to be detected and replaced.
-    """
-    # Strip quotes, unify path separators, and lower-case before comparing.
-    normalized = value.strip().strip("'\"").replace("\\", "/").lower()
-    return (
-        "/st-arm-clang/" in normalized
-        and bool(re.search(r"/lib/clang/\d+/include", normalized))
-    )
-
-
-# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
@@ -222,280 +120,204 @@ def _verbose_log(verbose: bool, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Core patching logic
+# config.yaml helpers
 # ---------------------------------------------------------------------------
 
-def _ensure_compileflags_sections(
-    content: str, include_c: str, include_cpp: str
-) -> str:
-    """Ensure the CompileFlags section contains all required entries.
+def _normalize_text(raw_bytes: bytes) -> str:
+    """Decode UTF-8 text and normalise line endings to LF.
 
-    Performs the following operations on *content* (a raw YAML string):
-
-    1. Creates a ``CompileFlags:`` top-level block if one does not exist.
-    2. Creates an ``Add:`` sub-list if one does not exist.
-    3. Removes any existing st-arm-clang ``-isystem`` entries (both Clang
-       built-in and newlib paths).  This covers block-scalar (``>-``) and
-       inline quote forms, and is version-agnostic so outdated paths are
-       always replaced.
-    4. Appends missing ``Add:`` entries (in this order):
-         - ``--target=arm-none-eabi``
-         - ``-stdlib=libc++``
-         - ``-isystem <include_c>``   (Clang built-in headers)
-         - ``-isystem <include_cpp>`` (newlib C++ headers)
-    5. Creates a ``Remove:`` sub-list if one does not exist, and adds:
-         - ``--sysroot``
-         - ``--config=newlib.cfg``
-
-    All existing entries that do not match the above rules are left unchanged.
-
-    Args:
-        content:     Raw text of the .clangd file.
-        include_c:   Absolute path string for the Clang built-in headers
-                     directory (``lib/clang/<version>/include``).
-        include_cpp: Absolute path string for the newlib C++ headers directory
-                     (``lib/clang-runtimes/newlib/arm-none-eabi/include/c++/v1``).
-
-    Returns:
-        Updated file content.  The trailing newline is preserved if present.
+    The normalised format is used for all comparisons to keep behavior
+    deterministic across operating systems and newline styles.
     """
-    lines = content.splitlines()
+    return raw_bytes.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
 
-    required_add_items = [
-        "- '--target=arm-none-eabi'",
-        "- '-stdlib=libc++'",
-    ]
-    required_remove_items = [
-        "- '--sysroot'",
-        "- '--config=newlib.cfg'",
-    ]
 
-    # ---- Locate or create CompileFlags block --------------------------------
-    compile_idx: Optional[int] = None
-    for i, line in enumerate(lines):
-        if line.rstrip() == "CompileFlags:":
-            compile_idx = i
-            break
+def _next_backup_path(filepath: Path) -> Path:
+    """Return the next available backup path for *filepath*.
 
-    if compile_idx is None:
-        lines = ["CompileFlags:", "  Add:"] + lines
-        compile_idx = 0
+    Example:
+        config.yaml -> config.yaml_backup001, config.yaml_backup002, ...
+    """
+    backup_prefix = f"{filepath.name}_backup"
+    backup_pattern = re.compile(rf"^{re.escape(backup_prefix)}(\d{{3}})$")
+    backup_max = 0
+    for entry in filepath.parent.iterdir():
+        if not entry.is_file():
+            continue
+        match = backup_pattern.match(entry.name)
+        if match:
+            backup_max = max(backup_max, int(match.group(1)))
+    return filepath.parent / f"{backup_prefix}{backup_max + 1:03d}"
 
-    # Find where the CompileFlags block ends: first non-empty line back at column 0.
-    compile_end = next(
-        (i for i in range(compile_idx + 1, len(lines))
-         if lines[i].strip() and not lines[i].startswith(" ")),
-        len(lines),
+
+def _build_managed_block(include_c: Path, include_cpp: Path, include_newlib: Path) -> str:
+    """Return the managed config.yaml section for clangd.
+
+    The order of include paths is intentional and must remain stable:
+    1) C++ headers, 2) newlib C headers, 3) Clang built-ins.
+    """
+    return (
+        f"{MANAGED_BEGIN}\n"
+        "# Applies ARM toolchain include paths for ST ARM Clang projects.\n"
+        "# Managed automatically. Re-run patch_clangd.py to update paths.\n"
+        "\n"
+        "CompileFlags:\n"
+        "  Add:\n"
+        "    - '--target=arm-none-eabi'\n"
+        "    - '-nostdinc'\n"
+        "    - '-nostdinc++'\n"
+        "    - '-nostdlibinc'\n"
+        "    - '-x'\n"
+        "    - 'c++'\n"
+        "\n"
+        "# === Path config to headers:\n"
+        "# ATTENTION: Order of these entries is important!\n"
+        "# 1. C++ STL:\n"
+        "    - '-isystem'\n"
+        "    - >-\n"
+        f"      {include_cpp}\n"
+        "# 2. C headers (newlib):\n"
+        "    - '-isystem'\n"
+        "    - >-\n"
+        f"      {include_newlib}\n"
+        "# 3. clang builtin:\n"
+        "    - '-isystem'\n"
+        "    - >-\n"
+        f"      {include_c}\n"
+        f"{MANAGED_END}\n"
     )
 
-    # ---- Locate or create Add list ------------------------------------------
-    add_idx = _find_child_key(lines, compile_idx, compile_end, "Add")
-    if add_idx is None:
-        lines.insert(compile_idx + 1, "  Add:")
-        add_idx     = compile_idx + 1
-        compile_end += 1
 
-    add_end   = _find_sequence_end(lines, add_idx, compile_end)
-    add_block = lines[add_idx + 1:add_end]
+def _merge_managed_block(existing: str, managed_block: str, verbose: bool) -> Tuple[str, bool]:
+    """Merge *managed_block* into existing config.yaml text.
 
-    # ---- Remove stale st-arm-clang -isystem entries -------------------------
-    # Any -isystem entry whose associated path matches the st-arm-clang Clang
-    # built-in or newlib pattern is removed so it can be re-added with the
-    # current version below.  Both block-scalar (>-) and inline quote forms
-    # are handled; the check is version-agnostic.
-    filtered: List[str] = []
-    i = 0
-    while i < len(add_block):
-        current = add_block[i].strip()
+    Behavior:
+    - Empty file: write only managed block.
+    - Existing file without managed markers: append via YAML document separator.
+    - Existing managed section: replace only that section.
 
-        if current == "- '-isystem'" and i + 1 < len(add_block):
-            nxt = add_block[i + 1].strip()
+    Returns:
+        (updated_text, changed)
+    """
+    begin_idx = existing.find(MANAGED_BEGIN)
 
-            # Block-scalar form:
-            #   - '-isystem'
-            #   - >-
-            #     the/path
-            if nxt == "- >-" and i + 2 < len(add_block):
-                path_val = add_block[i + 2].strip()
-                if (_is_newlib_include_path(path_val) or
-                        _is_clang_builtin_include_path(path_val)):
-                    i += 3
-                    continue
+    if begin_idx == -1:
+        # Existing user config stays untouched; add managed block as second
+        # YAML document. If the file is empty, no separator is needed.
+        if existing.strip() == "":
+            return managed_block, True
+        return f"{existing.rstrip()}\n---\n{managed_block}", True
 
-            # Inline form:
-            #   - '-isystem'
-            #   - 'the/path'
-            if nxt.startswith("- ") and (
-                _is_newlib_include_path(nxt[2:]) or
-                _is_clang_builtin_include_path(nxt[2:])
-            ):
-                i += 2
-                continue
+    end_idx = existing.find(MANAGED_END, begin_idx)
+    if end_idx == -1:
+        # Corrupt marker case: keep behavior deterministic by replacing from
+        # BEGIN marker to EOF with the new managed block.
+        _verbose_log(verbose, "Existing managed section has no END marker. Replacing from BEGIN to EOF.")
+        updated = f"{existing[:begin_idx].rstrip()}\n{managed_block}"
+        return updated, updated != existing
 
-        # Stand-alone form (no preceding -isystem):
-        #   - 'the/path'
-        if current.startswith("- ") and (
-            _is_newlib_include_path(current[2:]) or
-            _is_clang_builtin_include_path(current[2:])
-        ):
-            i += 1
-            continue
+    end_idx = end_idx + len(MANAGED_END)
+    if end_idx < len(existing) and existing[end_idx:end_idx + 1] == "\n":
+        end_idx += 1
 
-        filtered.append(add_block[i])
-        i += 1
+    current_block = existing[begin_idx:end_idx]
+    if current_block == managed_block:
+        return existing, False
 
-    if filtered != add_block:
-        lines[add_idx + 1:add_end] = filtered
-        compile_end += len(filtered) - len(add_block)
-        add_end      = add_idx + 1 + len(filtered)
-        add_block    = filtered
-
-    # ---- Insert missing Add entries -----------------------------------------
-    to_insert_add: List[str] = []
-    for item in required_add_items:
-        # Each simple flag fits on exactly one line, so a direct list-membership
-        # check (exact string match) is enough to detect duplicates.
-        if f"    {item}" not in add_block:
-            to_insert_add.append(f"    {item}")
-
-    # Include paths can span two or three lines in block-scalar form, so we
-    # join the block into a single string and use substring search.  Both
-    # backslash and forward-slash variants are checked to handle Windows paths.
-    include_c_posix   = include_c.replace("\\", "/")
-    include_cpp_posix = include_cpp.replace("\\", "/")
-    add_block_text    = "\n".join(add_block)
-
-    # C (Clang built-in headers) first, then C++ (newlib headers) — this order
-    # matches the reference .clangd and is required for correct header resolution.
-    if include_c not in add_block_text and include_c_posix not in add_block_text:
-        to_insert_add += ["    - '-isystem'", "    - >-", f"      {include_c}"]
-
-    if include_cpp not in add_block_text and include_cpp_posix not in add_block_text:
-        to_insert_add += ["    - '-isystem'", "    - >-", f"      {include_cpp}"]
-
-    if to_insert_add:
-        lines[add_end:add_end] = to_insert_add
-        compile_end += len(to_insert_add)
-
-    # ---- Locate or create Remove list ---------------------------------------
-    remove_idx = _find_child_key(lines, compile_idx, compile_end, "Remove")
-    if remove_idx is None:
-        # Place Remove before CompilationDatabase if it exists, otherwise at
-        # the end of the CompileFlags block.
-        db_idx    = _find_child_key(lines, compile_idx, compile_end, "CompilationDatabase")
-        insert_at = db_idx if db_idx is not None else compile_end
-        lines.insert(insert_at, "  Remove:")
-        remove_idx   = insert_at
-        compile_end += 1
-
-    remove_end   = _find_sequence_end(lines, remove_idx, compile_end)
-    remove_block = lines[remove_idx + 1:remove_end]
-
-    to_insert_remove = [
-        f"    {item}"
-        for item in required_remove_items
-        if f"    {item}" not in remove_block
-    ]
-    if to_insert_remove:
-        lines[remove_end:remove_end] = to_insert_remove
-
-    return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+    updated = f"{existing[:begin_idx]}{managed_block}{existing[end_idx:]}"
+    return updated, True
 
 
 # ---------------------------------------------------------------------------
-# File processing
+# User-level clangd config.yaml generation
 # ---------------------------------------------------------------------------
 
-def process_file(
-    filepath: Path,
-    cube_path: Path,
-    include_paths: Tuple[Path, Path],
+def _get_user_clangd_config_path() -> Optional[Path]:
+    """Return the platform-specific path for the user-level clangd config.yaml.
+
+    Platform locations (from clangd documentation):
+    - Windows : %LocalAppData%\\clangd\\config.yaml
+    - Linux   : $XDG_CONFIG_HOME/clangd/config.yaml  (default: ~/.config/clangd/config.yaml)
+    - macOS   : ~/Library/Application Support/clangd/config.yaml
+
+    Returns None if the location cannot be determined.
+    """
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            return Path(local_appdata) / "clangd" / "config.yaml"
+        # Fallback for uncommon environments where LOCALAPPDATA is missing.
+        return Path.home() / "AppData" / "Local" / "clangd" / "config.yaml"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "clangd" / "config.yaml"
+    # Linux and other Unix-like systems
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return Path(xdg_config) / "clangd" / "config.yaml"
+    return Path.home() / ".config" / "clangd" / "config.yaml"
+
+
+def patch_user_config_yaml(
+    include_c: Path,
+    include_cpp: Path,
+    include_newlib: Path,
     dry_run: bool,
     verbose: bool,
+    config_path_override: Optional[Path] = None,
 ) -> bool:
-    """Patch a single .clangd file and write a numbered backup if changed.
+    """Write or update the user-level clangd config.yaml.
 
-    Steps:
-      1. Read the file (UTF-8; an optional BOM is handled transparently).
-      2. Replace any ``${CUBE_BUNDLE_PATH}`` placeholder with the resolved path.
-      3. Ensure all required CompileFlags entries are present and up to date.
-      4. If anything changed, write a numbered backup and save the updated file
-         (skipped when *dry_run* is True).
+    This file is needed because clangd only applies project-level .clangd
+    files to files that live underneath the project root.  Toolchain headers
+    (opened via Follow Link) live in the st-arm-clang bundle directory, which
+    is outside the project tree.  Without a user-level config those files fall
+    back to clangd's built-in heuristic, which on Windows incorrectly picks
+    MSVC includes.
+
+    The generated managed section injects the required ARM target and include
+    paths so toolchain headers are parsed with the correct standard library.
 
     Args:
-        filepath:      Absolute path to the .clangd file.
-        cube_path:     Resolved CUBE_BUNDLE_PATH value.
-        include_paths: Tuple of ``(include_c, include_cpp)`` Path objects, where
-                       *include_c* is the Clang built-in headers path
-                       (``lib/clang/<version>/include``) and *include_cpp* is
-                       the newlib C++ headers path
-                       (``lib/clang-runtimes/newlib/arm-none-eabi/include/c++/v1``).
-        dry_run:       If True, do not write any files.
-        verbose:       If True, print step-by-step diagnostic messages.
+        include_c:      Path to the Clang built-in headers directory.
+        include_cpp:    Path to the newlib C++ headers directory (c++/v1).
+        include_newlib: Path to the newlib C headers directory.
+        dry_run:        If True, do not write any files.
+        verbose:        If True, print step-by-step diagnostic messages.
 
     Returns:
         True if the file was changed (or would be changed in dry-run mode).
     """
-    _verbose_log(verbose, f"Processing: {filepath}")
+    config_path = config_path_override if config_path_override is not None else _get_user_clangd_config_path()
+    config_dir = config_path.parent
+    _verbose_log(verbose, f"Config path     : {config_path}")
 
-    # Read raw bytes first so we can detect and later preserve an optional BOM.
-    # utf-8-sig decodes the content and silently strips the BOM from the string,
-    # which prevents it from appearing as part of the first YAML key.
-    # Line endings are normalised to LF so all comparisons and YAML parsing are
-    # consistent across operating systems.  The tool always writes LF output.
-    raw_bytes = filepath.read_bytes()
-    has_bom   = raw_bytes.startswith(b"\xef\xbb\xbf")
-    original  = raw_bytes.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-    modified  = original
-    changed   = False
+    managed_block = _build_managed_block(include_c, include_cpp, include_newlib)
 
-    # ---- Replace placeholder ------------------------------------------------
-    if "${CUBE_BUNDLE_PATH}" in modified:
-        _verbose_log(verbose, "Replacing ${CUBE_BUNDLE_PATH} placeholder")
-        modified = modified.replace(
-            "${CUBE_BUNDLE_PATH}",
-            str(cube_path).replace("\\", "/"),
-        )
-        changed = True
-
-    # ---- Patch CompileFlags -------------------------------------------------
-    include_c, include_cpp = include_paths
-    rewritten = _ensure_compileflags_sections(
-        modified, str(include_c), str(include_cpp)
-    )
-    if rewritten != modified:
-        _verbose_log(verbose, "CompileFlags section updated")
-        modified = rewritten
-        changed  = True
-
-    # ---- Write result -------------------------------------------------------
-    if changed:
-        print(f"  {'WOULD_PATCH' if dry_run else 'PATCHED'}: {filepath}")
-
-        if not dry_run:
-            write_encoding = "utf-8-sig" if has_bom else "utf-8"
-            # Find the next unused backup path (.clangd_backup001, _backup002, …).
-            backup_prefix  = f"{filepath.name}_backup"
-            backup_pattern = re.compile(rf"^{re.escape(backup_prefix)}(\d{{3}})$")
-            backup_max     = 0
-            for entry in filepath.parent.iterdir():
-                if entry.is_file():
-                    m = backup_pattern.match(entry.name)
-                    if m:
-                        backup_max = max(backup_max, int(m.group(1)))
-            backup = filepath.parent / f"{backup_prefix}{backup_max + 1:03d}"
-            _verbose_log(verbose, f"Writing backup : {backup.name}")
-            # Backup is an exact byte-for-byte copy of the original file
-            # (preserves the original line endings and BOM).
-            backup.write_bytes(raw_bytes)
-            # Patched file is written without OS newline translation so the
-            # result is always LF-only and idempotent on the next run.
-            filepath.write_bytes(modified.encode(write_encoding))
-            _verbose_log(verbose, "Done")
+    original_raw = b""
+    original = ""
+    if config_path.exists():
+        original_raw = config_path.read_bytes()
+        original = _normalize_text(original_raw)
+        _verbose_log(verbose, "Existing config.yaml detected.")
     else:
-        _verbose_log(verbose, "No changes needed")
+        _verbose_log(verbose, "config.yaml does not exist yet. A new file will be created.")
 
-    return changed
+    updated, changed = _merge_managed_block(original, managed_block, verbose)
+    if not changed:
+        _verbose_log(verbose, f"config.yaml already up to date: {config_path}")
+        return False
+
+    print(f"  {'WOULD_PATCH' if dry_run else 'PATCHED'}: {config_path}")
+    if not dry_run:
+        config_dir.mkdir(parents=True, exist_ok=True)
+        if config_path.exists():
+            backup = _next_backup_path(config_path)
+            _verbose_log(verbose, f"Writing backup : {backup.name}")
+            backup.write_bytes(original_raw)
+        config_path.write_bytes(updated.encode("utf-8"))
+        _verbose_log(verbose, f"Written: {config_path}")
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -503,11 +325,11 @@ def process_file(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Parse arguments, discover .clangd files, and run the patcher."""
+    """Parse arguments and update the user-level clangd config.yaml."""
     parser = argparse.ArgumentParser(
         description=(
-            "Patch .clangd files in the current project tree for use with "
-            "the ST ARM Clang toolchain on STM32 targets."
+            "Manage the user-level clangd config.yaml for ST ARM Clang "
+            "STM32 projects."
         )
     )
     parser.add_argument(
@@ -521,19 +343,18 @@ def main() -> None:
         help="Print detailed diagnostic messages for each step.",
     )
     parser.add_argument(
-        "--exclude", metavar="PATTERN", action="append", default=[],
-        help=(
-            "Skip .clangd files whose path contains PATTERN. "
-            "Can be specified multiple times."
-        ),
-    )
-    parser.add_argument(
         "--force",
         action="store_true",
         help=(
             "Ignore the STARM_TOOLCHAIN_CONFIG check in cmake/starm-clang.cmake "
             "and always run the patch, even for non-NEWLIB configurations."
         ),
+    )
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default="",
+        help="Optional absolute path to config.yaml (primarily for testing).",
     )
     args = parser.parse_args()
 
@@ -548,7 +369,7 @@ def main() -> None:
     cube_path    = Path(cube_path_env).resolve()
     project_root = Path.cwd()  # cwd = current working directory (set by the caller, e.g. cmake WORKING_DIRECTORY)
 
-    print("Patching .clangd file(s):")
+    print("Updating clangd user config:")
     _verbose_log(args.verbose, f"Project root    : {project_root}")
     _verbose_log(args.verbose, f"Mode            : {'dry-run' if args.dry_run else 'write'}")
     _verbose_log(args.verbose, f"CUBE_BUNDLE_PATH: {cube_path}")
@@ -606,53 +427,32 @@ def main() -> None:
         print(f"ERROR: No clang version directories found in: {clang_lib_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # include_c   — Clang built-in headers:  lib/clang/<clang-ver>/include
-    # include_cpp — newlib C++ headers:      lib/clang-runtimes/newlib/arm-none-eabi/include/c++/v1
-    include_c   = clang_versions[0] / "include"
-    include_cpp = toolchain_path / "lib" / "clang-runtimes" / "newlib" / "arm-none-eabi" / "include" / "c++" / "v1"
-    include_paths = (include_c, include_cpp)
+    # include_c       — Clang built-in headers:  lib/clang/<clang-ver>/include
+    # include_cpp     — newlib C++ headers:      lib/clang-runtimes/newlib/arm-none-eabi/include/c++/v1
+    # include_newlib  — newlib C headers:        lib/clang-runtimes/newlib/arm-none-eabi/include
+    include_c      = clang_versions[0] / "include"
+    include_cpp    = toolchain_path / "lib" / "clang-runtimes" / "newlib" / "arm-none-eabi" / "include" / "c++" / "v1"
+    include_newlib = toolchain_path / "lib" / "clang-runtimes" / "newlib" / "arm-none-eabi" / "include"
     _verbose_log(args.verbose, f"Clang version   : {clang_versions[0].name}")
-    _verbose_log(args.verbose, f"Include C       : {include_c}")
     _verbose_log(args.verbose, f"Include C++     : {include_cpp}")
+    _verbose_log(args.verbose, f"Include C       : {include_c}")
+    _verbose_log(args.verbose, f"Include newlib  : {include_newlib}")
 
-    # ---- Discover .clangd files ---------------------------------------------
-    all_files = list(project_root.rglob(".clangd"))
-    if args.exclude:
-        files = [
-            f for f in all_files
-            if not any(pat in str(f) for pat in args.exclude)
-        ]
-        excluded = len(all_files) - len(files)
-        _verbose_log(args.verbose, f"Found {len(all_files)} .clangd file(s), {excluded} excluded by --exclude patterns")
-    else:
-        files = all_files
-        _verbose_log(args.verbose, f"Found {len(files)} .clangd file(s)")
+    config_override = Path(args.config_path).resolve() if args.config_path else None
 
-    if not files:
-        _verbose_log(args.verbose, "Nothing to do.")
-        return
+    changed = patch_user_config_yaml(
+        include_c=include_c,
+        include_cpp=include_cpp,
+        include_newlib=include_newlib,
+        dry_run=args.dry_run,
+        verbose=args.verbose,
+        config_path_override=config_override,
+    )
 
-    # ---- Process files ------------------------------------------------------
-    error_count    = 0
-    modified_count = 0
-
-    for f in files:
-        try:
-            if process_file(f, cube_path, include_paths, args.dry_run, args.verbose):
-                modified_count += 1
-        except Exception as exc:
-            print(f"ERROR: {f}: {exc}", file=sys.stderr)
-            error_count += 1
-
-    _verbose_log(args.verbose, f"Patched: {modified_count}  Errors: {error_count}")
-
-    if modified_count == 0 and error_count == 0:
+    if not changed:
         print("  No changes needed.")
 
     print()
-
-    if error_count:
-        sys.exit(1)
 
 
 if __name__ == "__main__":
