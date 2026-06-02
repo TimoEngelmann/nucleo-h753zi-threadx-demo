@@ -19,6 +19,34 @@
 #include "app_threadx.h" // Contains the export declarations for App_ThreadX_Init() and MX_ThreadX_Init() functions.
 
 
+// Includes for checking the include paths in the project's clangd configuration:
+//
+// This part regards to clangd_patch.py
+// Further information about clangd_patch.py can be found in the ...\Scripts\Patch_clangd\README.md of this repository.
+// If ST has solved the issue, you can delete this section.
+// Without this fix or the workaround config in c:\Users\[name]]\AppData\Local\clangd\config.yaml 
+// clangd will not be able to resolve the headers properly. 
+// This can lead to wrong code analysis and missing features in the editor, such as code completion, go to definition, etc.  
+//
+// Although these headers are not used in this file, they can be used to verify 
+// that the clangd include paths are set up correctly.
+// To check whether the compiler is using the same file, you can open the header using clangd
+// link and temporarily add a #error to it. During the subsequent build process, the compiler
+// must abort at this #error.
+// The following three includes are used to check the three different include paths.
+// The expected path of the included headers are shown in the comments next to the include statements. 
+// 1. C++ STL: 
+#include <math.h>      // ...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1\math.h
+// 2. C Standard Library:
+#include <search.h>    // ...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\search.h
+// 3. Clang compiler builtin:
+#include <arm_acle.h>  // ...\st-arm-clang\21.1.1+st.7\lib\clang\21\include\arm_acle.h
+// A special case are C++ headers without file extensions. Without the correct configuration, clangd cannot 
+// resolve these files properly. Therefore, it is important to verify that the clangd header linking within these files is correct.
+#include <cmath>       // ...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1\cmath
+#include <complex.h>   // ...\st-arm-clang\21.1.1+st.7\lib\clang-runtimes\newlib\arm-none-eabi\include\c++\v1\complex.h
+
+
 //======================================================================================================================
 // MARK: Globals
 //======================================================================================================================
