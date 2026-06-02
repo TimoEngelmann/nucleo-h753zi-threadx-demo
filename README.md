@@ -29,8 +29,8 @@ nucleo-h753zi-threadx-demo/ ...................... # Root folder of repository.
 │  │     └─ app_threadx.c ........................ # Hint added, that this file is replaced by application.cpp 
 │  ├─ Scripts/
 │  │  └─ Patch_clangd/
-│  │     ├─ patch_clangd.py ...................... # Script to patch .clangd as workaround for missing paths.
-│  │     ├─ patch_clangd_test_runner.ps1 ......... # Automated test of patch_clangd.py.
+│  │     ├─ patch_clangd.py ...................... # Script to create/patch clangd.xml as workaround for wrong clangd header paths.
+│  │     ├─ patch_clangd_test.ps1 ................ # Automated test of patch_clangd.py.
 │  │     └─ README.md ............................ # Description regarding the patch tool and the test.
 │  ├─ .clangd .................................... # Clangd configuration
 │  ├─ .clang-format .............................. # Example of clang formatter configuration.

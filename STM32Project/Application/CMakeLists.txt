@@ -303,41 +303,31 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
 endif()
 
 
-# Run clangd patch tool during configure.
+# Run clangd patch tool to ensure the user clangd config.yaml contains
+# the include-path sections for ST ARM Clang toolchain headers.
+# See: Scripts/Patch_clangd/README.md
 find_package(Python3 COMPONENTS Interpreter REQUIRED QUIET)
 if(DEFINED ENV{CUBE_BUNDLE_PATH})
   message("")
   message("!!! ATTENTION !!!")
   message("Check if a bug fix for 'wrong clangd path' is available!")
-  message("If it is, please remove this workaround part in \\Application\\CMakeLists.txt file and the patch_clangd.py script in \\Framework\\Toolchain\\Scripts\\Patch_clangd folder.")
+  message("If it is, please remove this workaround part in:") 
+  message("- \\Application\\CMakeLists.txt file and the")
+  message("- complete \\Scripts\\Patch_clangd folder and the")
+  message("- changes in the user clangd config.yaml file.")
   message("Reference: https://community.st.com/t5/stm32cubeide-for-visual-studio/clangd-assumes-compiler-target-is-x86-64-pc-windows-msvc-for-cpp/m-p/855030#M1471")
   message("")
-  # Configure-time patch: runs immediately if .clangd already exists.
-  if(EXISTS "${CMAKE_SOURCE_DIR}/.clangd")
-    execute_process(
-      COMMAND ${Python3_EXECUTABLE}
-        "${CMAKE_SOURCE_DIR}/Scripts/Patch_clangd/patch_clangd.py"
-        --exclude patch_clangd_test_output
-      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-  else()
-    message(STATUS "patch_clangd: .clangd not yet present — will be patched on the first build.")
-  endif()
 
-  # Build-time patch: runs on every build so that the first build after the
-  # VS Code extension generates .clangd (which happens after the first
-  # configure) automatically patches it without requiring a manual second
-  # configure. The patch is idempotent and writes nothing when already applied.
-  add_custom_target(patch_clangd ALL
-    COMMAND ${CMAKE_COMMAND} -E env
-      "CUBE_BUNDLE_PATH=$ENV{CUBE_BUNDLE_PATH}"
-      ${Python3_EXECUTABLE}
-      "${CMAKE_SOURCE_DIR}/Scripts/Patch_clangd/patch_clangd.py"
-      --exclude patch_clangd_test_output
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Patching .clangd file(s)"
-    VERBATIM
-  )
+  execute_process(
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/Scripts/Patch_clangd/patch_clangd.py"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RESULT_VARIABLE PATCH_CLANGD_RESULT
+    )
+    if(NOT PATCH_CLANGD_RESULT EQUAL 0)
+        message(WARNING "patch_clangd: Python script failed with exit code ${PATCH_CLANGD_RESULT}.")
+    endif()
 else()
-  message(WARNING "CUBE_BUNDLE_PATH is not set. clangd patch step is skipped.")
+    message(WARNING "CUBE_BUNDLE_PATH is not set. clangd config update is skipped.")
 endif()
+
